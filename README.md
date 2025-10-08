@@ -43,7 +43,7 @@ Acesse `http://localhost:5173` (ou `http://localhost:91` quando por trás do Ngi
 ## Layout
 
 - **Sidebar responsiva** com atalhos para Dashboard e Cadastro.
-- **Dashboard**: tabela com filtros (status, destino, período) e ações de aprovação/cancelamento disponíveis apenas para administradores.
+- **Dashboard**: tabela com filtros (status, local – cidade/estado/país, período de ida/volta) e ações de aprovação/cancelamento disponíveis apenas para administradores. Administradores visualizam pedidos de todos os usuários e enxergam a coluna "Usuário".
 - **Cadastro**: formulário para criar novos pedidos, com feedback em tempo real e listagem dos pedidos recentes do usuário.
 
 ## Estado Global

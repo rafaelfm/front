@@ -48,8 +48,10 @@ const statusActions: Record<TravelStatus, TravelStatus[]> = {
 
 const localError = ref('');
 const localSuccess = ref('');
-const filterFromPicker = ref<Date | null>(null);
-const filterToPicker = ref<Date | null>(null);
+const departureFromPicker = ref<Date | null>(null);
+const departureToPicker = ref<Date | null>(null);
+const returnFromPicker = ref<Date | null>(null);
+const returnToPicker = ref<Date | null>(null);
 const today = new Date();
 const pagination = computed(() => travelStore.pagination);
 const hasItems = computed(() => travelStore.items.length > 0);
@@ -70,44 +72,86 @@ onMounted(() => {
 });
 
 watch(
-  () => travelStore.filters.from,
+  () => travelStore.filters.departureFrom,
   (value) => {
     const iso = toApiDate(value);
-    const currentIso = filterFromPicker.value ? toApiDate(filterFromPicker.value) : null;
+    const currentIso = departureFromPicker.value ? toApiDate(departureFromPicker.value) : null;
 
     if (iso !== currentIso) {
-      filterFromPicker.value = iso ? new Date(iso) : null;
+      departureFromPicker.value = iso ? new Date(iso) : null;
     }
   },
   { immediate: true },
 );
 
 watch(
-  () => travelStore.filters.to,
+  () => travelStore.filters.departureTo,
   (value) => {
     const iso = toApiDate(value);
-    const currentIso = filterToPicker.value ? toApiDate(filterToPicker.value) : null;
+    const currentIso = departureToPicker.value ? toApiDate(departureToPicker.value) : null;
 
     if (iso !== currentIso) {
-      filterToPicker.value = iso ? new Date(iso) : null;
+      departureToPicker.value = iso ? new Date(iso) : null;
     }
   },
   { immediate: true },
 );
 
-watch(filterFromPicker, (value) => {
+watch(
+  () => travelStore.filters.returnFrom,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = returnFromPicker.value ? toApiDate(returnFromPicker.value) : null;
+
+    if (iso !== currentIso) {
+      returnFromPicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => travelStore.filters.returnTo,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = returnToPicker.value ? toApiDate(returnToPicker.value) : null;
+
+    if (iso !== currentIso) {
+      returnToPicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(departureFromPicker, (value) => {
   const iso = toApiDate(value ?? null) ?? '';
 
-  if (iso !== travelStore.filters.from) {
-    travelStore.filters.from = iso;
+  if (iso !== travelStore.filters.departureFrom) {
+    travelStore.filters.departureFrom = iso;
   }
 });
 
-watch(filterToPicker, (value) => {
+watch(departureToPicker, (value) => {
   const iso = toApiDate(value ?? null) ?? '';
 
-  if (iso !== travelStore.filters.to) {
-    travelStore.filters.to = iso;
+  if (iso !== travelStore.filters.departureTo) {
+    travelStore.filters.departureTo = iso;
+  }
+});
+
+watch(returnFromPicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== travelStore.filters.returnFrom) {
+    travelStore.filters.returnFrom = iso;
+  }
+});
+
+watch(returnToPicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== travelStore.filters.returnTo) {
+    travelStore.filters.returnTo = iso;
   }
 });
 
@@ -183,8 +227,10 @@ const clearFilters = () => {
   travelStore.resetFilters();
   travelStore.pagination.currentPage = 1;
   localSuccess.value = '';
-  filterFromPicker.value = null;
-  filterToPicker.value = null;
+  departureFromPicker.value = null;
+  departureToPicker.value = null;
+  returnFromPicker.value = null;
+  returnToPicker.value = null;
   fetchData().catch(() => {});
 };
 
@@ -198,10 +244,6 @@ const applyFilters = () => {
 <template>
   <main class="dashboard">
     <header class="hero">
-      <div>
-        <h1>Bem-vindo, {{ displayName }}.</h1>
-        <p class="subtitle">Role atual: {{ roleName }}</p>
-      </div>
       <button type="button" class="primary" @click="goToCadastro">
         Novo Pedido
       </button>
@@ -216,40 +258,69 @@ const applyFilters = () => {
           </option>
         </select>
       </label>
-      <DestinationAutocomplete
-        v-model="travelStore.filters.location"
-        label="Local"
-        placeholder="Cidade, estado ou país"
-      />
-      <label>
-        <span>Data inicial</span>
-        <Datepicker
-          v-model="filterFromPicker"
-          :format="'dd/MM/yyyy'"
-          locale="pt-BR"
-          :enable-time-picker="false"
-          :auto-apply="true"
-          :close-on-auto-apply="false"
-          :input-class="'date-input'"
-          :placeholder="'dd/mm/aaaa'"
+      <div style="margin-right: 20px;">
+        <DestinationAutocomplete
+          v-model="travelStore.filters.location"
+          label="Local"
+          placeholder="Cidade, estado ou país"
         />
-      </label>
-      <label>
-        <span>Data final</span>
-        <Datepicker
-          v-model="filterToPicker"
-          :format="'dd/MM/yyyy'"
-          locale="pt-BR"
-          :enable-time-picker="false"
-          :auto-apply="true"
-          :close-on-auto-apply="false"
-          :input-class="'date-input'"
-          :placeholder="'dd/mm/aaaa'"
-          :min-date="filterFromPicker ?? today"
-        />
-      </label>
-      <button type="button" class="primary" @click="applyFilters">Aplicar filtros</button>
-      <button type="button" class="ghost" @click="clearFilters">Limpar</button>
+      </div>
+      <div class="range-filter">
+        <span>Ida</span>
+        <div class="range-inputs">
+          <Datepicker
+            v-model="departureFromPicker"
+            :format="'dd/MM/yyyy'"
+            locale="pt-BR"
+            :enable-time-picker="false"
+            :auto-apply="true"
+            :close-on-auto-apply="false"
+            :input-class="'date-input'"
+            :placeholder="'De (dd/mm/aaaa)'"
+          />
+          <Datepicker
+            v-model="departureToPicker"
+            :format="'dd/MM/yyyy'"
+            locale="pt-BR"
+            :enable-time-picker="false"
+            :auto-apply="true"
+            :close-on-auto-apply="false"
+            :input-class="'date-input'"
+            :placeholder="'Até (dd/mm/aaaa)'"
+            :min-date="departureFromPicker ?? today"
+          />
+        </div>
+      </div>
+      <div class="range-filter">
+        <span>Volta</span>
+        <div class="range-inputs">
+          <Datepicker
+            v-model="returnFromPicker"
+            :format="'dd/MM/yyyy'"
+            locale="pt-BR"
+            :enable-time-picker="false"
+            :auto-apply="true"
+            :close-on-auto-apply="false"
+            :input-class="'date-input'"
+            :placeholder="'De (dd/mm/aaaa)'"
+          />
+          <Datepicker
+            v-model="returnToPicker"
+            :format="'dd/MM/yyyy'"
+            locale="pt-BR"
+            :enable-time-picker="false"
+            :auto-apply="true"
+            :close-on-auto-apply="false"
+            :input-class="'date-input'"
+            :placeholder="'Até (dd/mm/aaaa)'"
+            :min-date="returnFromPicker ?? today"
+          />
+        </div>
+      </div>
+      <div class="filters-actions">
+        <button type="button" class="primary" @click="applyFilters">Aplicar filtros</button>
+        <button type="button" class="ghost" @click="clearFilters">Limpar</button>
+      </div>
     </section>
 
     <p v-if="localError" class="feedback error">{{ localError }}</p>
@@ -263,6 +334,7 @@ const applyFilters = () => {
           <tr>
             <th>#</th>
             <th>Solicitante</th>
+            <th v-if="canManage">Usuário</th>
             <th>Local</th>
             <th>Ida</th>
             <th>Volta</th>
@@ -274,6 +346,7 @@ const applyFilters = () => {
           <tr v-for="item in travelStore.items" :key="item.id">
             <td>{{ item.id }}</td>
             <td>{{ item.requester_name }}</td>
+            <td v-if="canManage">{{ item.user?.name ?? '—' }}</td>
             <td>{{ item.location_label || '—' }}</td>
             <td>{{ formatDateForDisplay(item.departure_date) }}</td>
             <td>{{ formatDateForDisplay(item.return_date) }}</td>
@@ -344,8 +417,29 @@ const applyFilters = () => {
 .filters {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   align-items: end;
+}
+
+.range-filter {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 0.35rem;
+}
+
+.range-inputs {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.filters-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .date-input {

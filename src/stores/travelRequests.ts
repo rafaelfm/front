@@ -41,8 +41,10 @@ export interface TravelRequest {
 export interface TravelFilters {
   status: TravelStatus | 'all';
   location: string;
-  from: string;
-  to: string;
+  departureFrom: string;
+  departureTo: string;
+  returnFrom: string;
+  returnTo: string;
 }
 
 type ApiTravelRequest = Omit<TravelRequest, 'location_label'> & {
@@ -138,8 +140,10 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
   const filters = reactive<TravelFilters>({
     status: 'all',
     location: '',
-    from: '',
-    to: '',
+    departureFrom: '',
+    departureTo: '',
+    returnFrom: '',
+    returnTo: '',
   });
   const pagination = reactive({
     currentPage: 1,
@@ -153,8 +157,10 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
   const resetFilters = () => {
     filters.status = 'all';
     filters.location = '';
-    filters.from = '';
-    filters.to = '';
+    filters.departureFrom = '';
+    filters.departureTo = '';
+    filters.returnFrom = '';
+    filters.returnTo = '';
   };
 
   const goToPage = async (page: number) => {
@@ -185,15 +191,14 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
     error.value = '';
 
     try {
-      const from = toApiDate(filters.from) ?? undefined;
-      const to = toApiDate(filters.to) ?? undefined;
-
       const { data } = await apiClient.get<TravelRequestCollectionResponse>('/travel-requests', {
         params: {
           status: filters.status === 'all' ? undefined : filters.status,
           location: filters.location || undefined,
-          from,
-          to,
+          departure_from: toApiDate(filters.departureFrom) ?? undefined,
+          departure_to: toApiDate(filters.departureTo) ?? undefined,
+          return_from: toApiDate(filters.returnFrom) ?? undefined,
+          return_to: toApiDate(filters.returnTo) ?? undefined,
           page: pagination.currentPage,
           per_page: pagination.perPage,
         },
