@@ -15,7 +15,7 @@ interface Props {
 const props = defineProps<Props>();
 const emit = defineEmits<{
   (event: 'update:modelValue', value: string): void;
-  (event: 'selected', destination: Destination): void;
+  (event: 'selected', payload: { destination: Destination; formatted: string }): void;
 }>();
 
 const destinationsStore = useDestinationsStore();
@@ -27,6 +27,7 @@ const blurHandle = ref<number | undefined>();
 const minChars = computed(() => Math.max(1, props.minChars ?? 2));
 const results = ref<Destination[]>([]);
 const isFocused = ref(false);
+const inputRef = ref<HTMLInputElement | null>(null);
 
 const hasQuery = computed(() => internalValue.value.trim().length >= minChars.value);
 const hasSuggestions = computed(() => results.value.length > 0);
@@ -57,6 +58,10 @@ watch(
       return;
     }
 
+    if (!isFocused.value) {
+      return;
+    }
+
     if (typeof window === 'undefined') {
       return;
     }
@@ -68,7 +73,12 @@ watch(
         results.value = [];
         console.warn('Não foi possível carregar destinos:', error);
       } finally {
-        showSuggestions.value = isFocused.value;
+        if (!isFocused.value) {
+          results.value = [];
+          showSuggestions.value = false;
+        } else {
+          showSuggestions.value = results.value.length > 0;
+        }
       }
     }, 1500);
   },
@@ -96,13 +106,20 @@ const handleSelect = (destination: Destination) => {
     ? destination.label
     : fallbackParts.join(', ');
 
-  internalValue.value = formatted;
-  emit('update:modelValue', formatted);
-  emit('selected', destination);
+  if (typeof window !== 'undefined' && debounceHandle.value !== undefined) {
+    window.clearTimeout(debounceHandle.value);
+  }
 
-  results.value = [];
   isFocused.value = false;
   showSuggestions.value = false;
+  results.value = [];
+  internalValue.value = formatted;
+  emit('update:modelValue', formatted);
+  emit('selected', { destination, formatted });
+  if (typeof window !== 'undefined' && blurHandle.value !== undefined) {
+    window.clearTimeout(blurHandle.value);
+  }
+  inputRef.value?.blur();
 };
 
 const handleFocus = () => {
@@ -150,6 +167,7 @@ onBeforeUnmount(() => {
     <span v-if="label">{{ label }}</span>
     <div class="field">
       <input
+        ref="inputRef"
         :value="internalValue"
         :name="name"
         type="text"
@@ -176,9 +194,7 @@ onBeforeUnmount(() => {
               </button>
             </li>
           </ul>
-          <p v-else class="state">
-            Nenhum destino encontrado para "{{ internalValue.trim() }}".
-          </p>
+          <p v-else class="state">Nenhum destino encontrado para o filtro.</p>
         </template>
       </div>
     </div>

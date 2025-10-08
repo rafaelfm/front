@@ -5,6 +5,7 @@ import { apiClient } from '../lib/api';
 export interface Destination {
   id: number;
   slug: string;
+  city_id: number;
   city: string;
   state: string | null;
   state_code?: string | null;

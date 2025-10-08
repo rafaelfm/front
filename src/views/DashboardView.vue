@@ -4,6 +4,10 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useTravelRequestsStore, type TravelStatus } from '../stores/travelRequests';
 import DestinationAutocomplete from '../components/DestinationAutocomplete.vue';
+import Datepicker from '@vuepic/vue-datepicker';
+import '@vuepic/vue-datepicker/dist/main.css';
+import { formatDateForDisplay, toApiDate } from '../lib/date';
+import { getStatusLabel } from '../lib/status';
 
 const auth = useAuthStore();
 const travelStore = useTravelRequestsStore();
@@ -44,6 +48,10 @@ const statusActions: Record<TravelStatus, TravelStatus[]> = {
 
 const localError = ref('');
 const localSuccess = ref('');
+const filterFromPicker = ref<Date | null>(null);
+const filterToPicker = ref<Date | null>(null);
+const today = new Date();
+today.setHours(0, 0, 0, 0);
 
 const fetchData = async () => {
   try {
@@ -59,6 +67,48 @@ const fetchData = async () => {
 
 onMounted(() => {
   fetchData().catch(() => {});
+});
+
+watch(
+  () => travelStore.filters.from,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = filterFromPicker.value ? toApiDate(filterFromPicker.value) : null;
+
+    if (iso !== currentIso) {
+      filterFromPicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => travelStore.filters.to,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = filterToPicker.value ? toApiDate(filterToPicker.value) : null;
+
+    if (iso !== currentIso) {
+      filterToPicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(filterFromPicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== travelStore.filters.from) {
+    travelStore.filters.from = iso;
+  }
+});
+
+watch(filterToPicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== travelStore.filters.to) {
+    travelStore.filters.to = iso;
+  }
 });
 
 watch(
@@ -82,10 +132,21 @@ const handleStatusChange = async (id: number, status: TravelStatus) => {
     localSuccess.value = 'Status atualizado com sucesso.';
     await fetchData();
   } catch (error) {
-    localError.value =
-      typeof error === 'object' && error !== null && 'message' in error
-        ? String((error as { message?: unknown }).message)
-        : 'Não foi possível atualizar o status.';
+    const messages =
+      typeof error === 'object' && error !== null && 'messages' in error && Array.isArray((error as { messages?: unknown }).messages)
+        ? ((error as { messages?: unknown }).messages as unknown[])
+            .map((item) => (typeof item === 'string' ? item : String(item)))
+            .filter((message) => message.trim() !== '')
+        : [];
+
+    if (messages.length > 0) {
+      localError.value = messages.join(' ');
+    } else {
+      localError.value =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message)
+          : 'Não foi possível atualizar o status.';
+    }
   }
 };
 
@@ -122,11 +183,30 @@ const goToCadastro = () => {
       />
       <label>
         <span>Data inicial</span>
-        <input v-model="travelStore.filters.from" type="date" />
+        <Datepicker
+          v-model="filterFromPicker"
+          :format="'dd/MM/yyyy'"
+          locale="pt-BR"
+          :enable-time-picker="false"
+          :auto-apply="true"
+          :close-on-auto-apply="false"
+          :input-class="'date-input'"
+          :placeholder="'dd/mm/aaaa'"
+        />
       </label>
       <label>
         <span>Data final</span>
-        <input v-model="travelStore.filters.to" type="date" />
+        <Datepicker
+          v-model="filterToPicker"
+          :format="'dd/MM/yyyy'"
+          locale="pt-BR"
+          :enable-time-picker="false"
+          :auto-apply="true"
+          :close-on-auto-apply="false"
+          :input-class="'date-input'"
+          :placeholder="'dd/mm/aaaa'"
+          :min-date="filterFromPicker ?? today"
+        />
       </label>
       <button type="button" class="ghost" @click="travelStore.resetFilters">Limpar</button>
     </section>
@@ -153,11 +233,11 @@ const goToCadastro = () => {
           <tr v-for="item in travelStore.filtered" :key="item.id">
             <td>{{ item.id }}</td>
             <td>{{ item.requester_name }}</td>
-            <td>{{ item.destination }}</td>
-            <td>{{ new Date(item.departure_date).toLocaleDateString() }}</td>
-            <td>{{ new Date(item.return_date).toLocaleDateString() }}</td>
+            <td>{{ item.location_label || '—' }}</td>
+            <td>{{ formatDateForDisplay(item.departure_date) }}</td>
+            <td>{{ formatDateForDisplay(item.return_date) }}</td>
             <td>
-              <span class="status" :class="item.status">{{ item.status }}</span>
+              <span class="status" :class="item.status">{{ getStatusLabel(item.status) }}</span>
             </td>
             <td v-if="canManage" class="actions">
               <button
@@ -203,6 +283,21 @@ const goToCadastro = () => {
   gap: 1rem;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: end;
+}
+
+.date-input {
+  width: 100%;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
 label {

@@ -1,14 +1,32 @@
 import { computed, reactive, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { apiClient } from '../lib/api';
+import { toApiDate } from '../lib/date';
 import type { BackendUser } from './auth';
 
 export type TravelStatus = 'requested' | 'approved' | 'cancelled';
 
+export interface TravelRequestCityState {
+  id: number;
+  name: string;
+  code?: string | null;
+  [key: string]: unknown;
+}
+
+export interface TravelRequestCity {
+  id: number;
+  name: string;
+  state_id: number | null;
+  country_id: number;
+  state?: TravelRequestCityState | null;
+  country?: TravelRequestCityState | null;
+  [key: string]: unknown;
+}
+
 export interface TravelRequest {
   id: number;
+  city_id: number | null;
   requester_name: string;
-  destination: string;
   departure_date: string;
   return_date: string;
   status: TravelStatus;
@@ -16,6 +34,8 @@ export interface TravelRequest {
   created_at: string;
   updated_at: string;
   user?: BackendUser;
+  city?: TravelRequestCity | null;
+  location_label: string;
 }
 
 export interface TravelFilters {
@@ -24,6 +44,92 @@ export interface TravelFilters {
   from: string;
   to: string;
 }
+
+type ApiTravelRequest = Omit<TravelRequest, 'location_label'> & {
+  location_label?: string | null;
+};
+
+type TravelRequestCollectionResponse = {
+  data: ApiTravelRequest[];
+  meta?: {
+    current_page?: number;
+    last_page?: number;
+    per_page?: number;
+    total?: number;
+  };
+};
+
+type TravelRequestResourceResponse = {
+  data: ApiTravelRequest;
+};
+
+const extractErrorMessages = (input: unknown): string[] => {
+  if (typeof input === 'object' && input !== null) {
+    const candidate = input as {
+      errors?: Record<string, unknown> | null;
+      message?: unknown;
+    };
+
+    if (candidate.errors && typeof candidate.errors === 'object') {
+      const messages: string[] = [];
+
+      Object.values(candidate.errors).forEach((value) => {
+        if (Array.isArray(value)) {
+          value.forEach((entry) => {
+            if (typeof entry === 'string' && entry.trim() !== '') {
+              messages.push(entry.trim());
+            }
+          });
+        } else if (typeof value === 'string' && value.trim() !== '') {
+          messages.push(value.trim());
+        }
+      });
+
+      if (messages.length > 0) {
+        return messages;
+      }
+    }
+
+    if (typeof candidate.message === 'string' && candidate.message.trim() !== '') {
+      return [candidate.message.trim()];
+    }
+  }
+
+  return ['Não foi possível processar a solicitação.'];
+};
+
+const buildLocationLabel = (request: Pick<ApiTravelRequest, 'location_label' | 'city'>): string => {
+  if (typeof request.location_label === 'string' && request.location_label.trim() !== '') {
+    return request.location_label.trim();
+  }
+
+  const city = request.city;
+
+  if (!city) {
+    return '';
+  }
+
+  const parts = [
+    city.name,
+    city.state?.code || city.state?.name || '',
+    city.country?.name || '',
+  ]
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter((part) => part !== '');
+
+  return parts.join(', ');
+};
+
+const normalizeTravelRequest = (request: ApiTravelRequest): TravelRequest => ({
+  ...request,
+  departure_date: toApiDate(request.departure_date) ?? request.departure_date,
+  return_date: toApiDate(request.return_date) ?? request.return_date,
+  location_label: buildLocationLabel(request),
+  city_id:
+    request.city_id === null || request.city_id === undefined
+      ? null
+      : Number(request.city_id),
+});
 
 export const useTravelRequestsStore = defineStore('travel-requests', () => {
   const items = ref<TravelRequest[]>([]);
@@ -43,18 +149,23 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
   });
 
   const filtered = computed(() => {
-    if (filters.status === 'all' && !filters.destination && !filters.from && !filters.to) {
+    const normalizedDestination = filters.destination.trim().toLocaleLowerCase();
+    const fromDate = toApiDate(filters.from);
+    const toDate = toApiDate(filters.to);
+
+    if (filters.status === 'all' && !normalizedDestination && !fromDate && !toDate) {
       return items.value;
     }
 
     return items.value.filter((item) => {
       const statusMatch =
         filters.status === 'all' ? true : item.status === filters.status;
-      const destinationMatch = filters.destination
-        ? item.destination.toLocaleLowerCase().includes(filters.destination.toLocaleLowerCase())
+      const locationLabel = buildLocationLabel(item).toLocaleLowerCase();
+      const destinationMatch = normalizedDestination
+        ? locationLabel.includes(normalizedDestination)
         : true;
-      const fromMatch = filters.from ? item.departure_date >= filters.from : true;
-      const toMatch = filters.to ? item.return_date <= filters.to : true;
+      const fromMatch = fromDate ? item.departure_date >= fromDate : true;
+      const toMatch = toDate ? item.return_date <= toDate : true;
 
       return statusMatch && destinationMatch && fromMatch && toMatch;
     });
@@ -72,27 +183,32 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
     error.value = '';
 
     try {
-      const { data } = await apiClient.get('/travel-requests', {
+      const from = toApiDate(filters.from) ?? undefined;
+      const to = toApiDate(filters.to) ?? undefined;
+
+      const { data } = await apiClient.get<TravelRequestCollectionResponse>('/travel-requests', {
         params: {
           status: filters.status === 'all' ? undefined : filters.status,
           destination: filters.destination || undefined,
-          from: filters.from || undefined,
-          to: filters.to || undefined,
+          from,
+          to,
           page: pagination.currentPage,
           per_page: pagination.perPage,
         },
       });
 
-      items.value = data.data;
+      const normalizedItems = Array.isArray(data.data)
+        ? data.data.map(normalizeTravelRequest)
+        : [];
+
+      items.value = normalizedItems;
       pagination.currentPage = data.meta?.current_page ?? 1;
       pagination.lastPage = data.meta?.last_page ?? 1;
       pagination.perPage = data.meta?.per_page ?? 15;
-      pagination.total = data.meta?.total ?? data.data.length;
+      pagination.total = data.meta?.total ?? normalizedItems.length;
     } catch (err) {
-      error.value =
-        typeof err === 'object' && err !== null && 'message' in err
-          ? String((err as { message?: unknown }).message)
-          : 'Não foi possível carregar os pedidos de viagem.';
+      const messages = extractErrorMessages(err);
+      error.value = messages.join(' ');
     } finally {
       loading.value = false;
     }
@@ -100,7 +216,7 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
 
   const create = async (payload: {
     requester_name: string;
-    destination: string;
+    city_id: number;
     departure_date: string;
     return_date: string;
     notes?: string | null;
@@ -109,16 +225,39 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
     loading.value = true;
 
     try {
-      const { data } = await apiClient.post('/travel-requests', payload);
-      items.value = [data.data, ...items.value];
+      const body = {
+        ...payload,
+        city_id: payload.city_id,
+        departure_date: toApiDate(payload.departure_date) ?? payload.departure_date,
+        return_date: toApiDate(payload.return_date) ?? payload.return_date,
+        notes:
+          typeof payload.notes === 'string' && payload.notes.trim() === ''
+            ? null
+            : payload.notes,
+      };
+
+      const { data } = await apiClient.post<TravelRequestResourceResponse>('/travel-requests', body);
+      const created = normalizeTravelRequest(data.data);
+
+      items.value = [created, ...items.value];
       pagination.total += 1;
-      return data.data as TravelRequest;
+      return created;
     } catch (err) {
-      error.value =
-        typeof err === 'object' && err !== null && 'message' in err
-          ? String((err as { message?: unknown }).message)
-          : 'Não foi possível criar o pedido.';
-      throw err;
+      const messages = extractErrorMessages(err);
+      error.value = messages.join(' ');
+
+      const enrichedError: Record<string, unknown> =
+        typeof err === 'object' && err !== null
+          ? { ...(err as Record<string, unknown>) }
+          : {};
+
+      enrichedError.messages = messages;
+
+      if (typeof enrichedError.message !== 'string' || enrichedError.message.trim() === '') {
+        enrichedError.message = messages.join('\n');
+      }
+
+      throw enrichedError;
     } finally {
       loading.value = false;
     }
@@ -128,21 +267,33 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
     error.value = '';
 
     try {
-      const { data } = await apiClient.patch(`/travel-requests/${id}/status`, {
+      const { data } = await apiClient.patch<TravelRequestResourceResponse>(`/travel-requests/${id}/status`, {
         status,
       });
 
+      const updated = normalizeTravelRequest(data.data);
+
       items.value = items.value.map((item) =>
-        item.id === id ? ({ ...item, ...data.data } as TravelRequest) : item,
+        item.id === id ? updated : item,
       );
 
-      return data.data as TravelRequest;
+      return updated;
     } catch (err) {
-      error.value =
-        typeof err === 'object' && err !== null && 'message' in err
-          ? String((err as { message?: unknown }).message)
-          : 'Não foi possível atualizar o status.';
-      throw err;
+      const messages = extractErrorMessages(err);
+      error.value = messages.join(' ');
+
+      const enrichedError: Record<string, unknown> =
+        typeof err === 'object' && err !== null
+          ? { ...(err as Record<string, unknown>) }
+          : {};
+
+      enrichedError.messages = messages;
+
+      if (typeof enrichedError.message !== 'string' || enrichedError.message.trim() === '') {
+        enrichedError.message = messages.join('\n');
+      }
+
+      throw enrichedError;
     }
   };
 

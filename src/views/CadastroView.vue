@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watchEffect } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue';
+import Datepicker from '@vuepic/vue-datepicker';
+import '@vuepic/vue-datepicker/dist/main.css';
 import { useTravelRequestsStore } from '../stores/travelRequests';
 import { useAuthStore } from '../stores/auth';
 import DestinationAutocomplete from '../components/DestinationAutocomplete.vue';
+import { formatDateForDisplay, toApiDate } from '../lib/date';
+import { getStatusLabel } from '../lib/status';
+import type { Destination as AutocompleteDestination } from '../stores/destinations';
 
 const travelStore = useTravelRequestsStore();
 const auth = useAuthStore();
@@ -10,54 +15,175 @@ const auth = useAuthStore();
 const form = reactive({
   requester_name: '',
   destination: '',
+  city_id: null as number | null,
   departure_date: '',
   return_date: '',
   notes: '',
 });
 
 const submitting = ref(false);
-const localMessage = ref('');
+const localMessages = ref<string[]>([]);
 const messageType = ref<'success' | 'error'>('success');
+const selectedDestinationLabel = ref('');
+let selectingDestination = false;
+let selectingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
+const departurePicker = ref<Date | null>(null);
+const returnPicker = ref<Date | null>(null);
 
 const userRequests = computed(() =>
   travelStore.items.filter((item) => item.status === 'requested'),
 );
 
-const resetForm = () => {
+const handleDestinationSelected = ({
+  destination,
+  formatted,
+}: {
+  destination: AutocompleteDestination;
+  formatted: string;
+}) => {
+  selectingDestination = true;
+  form.city_id = Number(destination.city_id);
+  selectedDestinationLabel.value = formatted.trim();
+
+  if (messageType.value === 'error') {
+    localMessages.value = [];
+    messageType.value = 'success';
+  }
+
+  if (selectingTimeout !== null) {
+    clearTimeout(selectingTimeout);
+  }
+
+  selectingTimeout = setTimeout(() => {
+    selectingDestination = false;
+    selectingTimeout = null;
+  }, 0);
+};
+
+onBeforeUnmount(() => {
+  if (selectingTimeout !== null) {
+    clearTimeout(selectingTimeout);
+    selectingTimeout = null;
+  }
+});
+
+const resetForm = (options: { clearMessages?: boolean } = {}) => {
   form.requester_name = '';
   form.destination = '';
+  form.city_id = null;
   form.departure_date = '';
   form.return_date = '';
   form.notes = '';
+  selectedDestinationLabel.value = '';
+  selectingDestination = false;
+  if (selectingTimeout !== null) {
+    clearTimeout(selectingTimeout);
+    selectingTimeout = null;
+  }
+
+  if (options.clearMessages) {
+    localMessages.value = [];
+    messageType.value = 'success';
+  }
 };
+
+watch(
+  () => form.departure_date,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = departurePicker.value ? toApiDate(departurePicker.value) : null;
+
+    if (iso !== currentIso) {
+      departurePicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => form.return_date,
+  (value) => {
+    const iso = toApiDate(value);
+    const currentIso = returnPicker.value ? toApiDate(returnPicker.value) : null;
+
+    if (iso !== currentIso) {
+      returnPicker.value = iso ? new Date(iso) : null;
+    }
+  },
+  { immediate: true },
+);
+
+watch(departurePicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== form.departure_date) {
+    form.departure_date = iso;
+  }
+});
+
+watch(returnPicker, (value) => {
+  const iso = toApiDate(value ?? null) ?? '';
+
+  if (iso !== form.return_date) {
+    form.return_date = iso;
+  }
+});
 
 const submit = async () => {
   if (submitting.value) {
     return;
   }
 
+  const rawCityId = form.city_id;
+  const cityId = typeof rawCityId === 'string' ? Number(rawCityId) : rawCityId;
+
+  if (!Number.isFinite(cityId) || Number(cityId) <= 0) {
+    messageType.value = 'error';
+    localMessages.value = ['Selecione um destino válido.'];
+    return;
+  }
+
   submitting.value = true;
-  localMessage.value = '';
+  localMessages.value = [];
 
   try {
     await travelStore.create({
       requester_name: form.requester_name,
-      destination: form.destination,
+      city_id: Number(cityId),
       departure_date: form.departure_date,
       return_date: form.return_date,
       notes: form.notes,
     });
 
-    messageType.value = 'success';
-    localMessage.value = 'Pedido de viagem criado com sucesso!';
     resetForm();
+    messageType.value = 'success';
+    localMessages.value = ['Pedido de viagem criado com sucesso!'];
     await travelStore.fetch();
   } catch (error) {
     messageType.value = 'error';
-    localMessage.value =
-      typeof error === 'object' && error !== null && 'message' in error
-        ? String((error as { message?: unknown }).message)
-        : 'Não foi possível criar o pedido.';
+    const messages =
+      typeof error === 'object' &&
+      error !== null &&
+      'messages' in error &&
+      Array.isArray((error as { messages?: unknown }).messages)
+        ? ((error as { messages?: unknown }).messages as unknown[])
+            .map((item) => (typeof item === 'string' ? item : String(item)))
+            .filter((message) => message.trim() !== '')
+        : [];
+
+    if (messages.length > 0) {
+      localMessages.value = messages;
+    } else {
+      const fallback =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message)
+          : 'Não foi possível criar o pedido.';
+      localMessages.value = [fallback];
+    }
   } finally {
     submitting.value = false;
   }
@@ -74,6 +200,28 @@ watchEffect(() => {
     form.requester_name = auth.user.name;
   }
 });
+
+watch(
+  () => form.destination,
+  (value) => {
+    if (selectingDestination) {
+      return;
+    }
+
+    const normalizedCurrent = (value ?? '').trim();
+    const normalizedSelected = selectedDestinationLabel.value.trim();
+
+    if (normalizedCurrent === '') {
+      form.city_id = null;
+      selectedDestinationLabel.value = '';
+      return;
+    }
+
+    if (normalizedCurrent !== normalizedSelected) {
+      form.city_id = null;
+    }
+  },
+);
 </script>
 
 <template>
@@ -92,21 +240,44 @@ watchEffect(() => {
           <input v-model="form.requester_name" type="text" required placeholder="Nome completo" />
         </label>
 
-        <DestinationAutocomplete
-          v-model="form.destination"
-          label="Destino"
-          placeholder="Cidade, País"
-          required
-        />
+<DestinationAutocomplete
+  v-model="form.destination"
+  label="Destino"
+  placeholder="Cidade, País"
+  required
+  @selected="handleDestinationSelected"
+/>
 
         <div class="grid">
           <label>
             <span>Data de ida</span>
-            <input v-model="form.departure_date" type="date" required />
+            <Datepicker
+              v-model="departurePicker"
+              :format="'dd/MM/yyyy'"
+              locale="pt-BR"
+              :enable-time-picker="false"
+              :auto-apply="true"
+              :close-on-auto-apply="false"
+              :input-class="'date-input'"
+              :placeholder="'dd/mm/aaaa'"
+              :min-date="today"
+              required
+            />
           </label>
           <label>
             <span>Data de volta</span>
-            <input v-model="form.return_date" type="date" required />
+            <Datepicker
+              v-model="returnPicker"
+              :format="'dd/MM/yyyy'"
+              locale="pt-BR"
+              :enable-time-picker="false"
+              :auto-apply="true"
+              :close-on-auto-apply="false"
+              :input-class="'date-input'"
+              :placeholder="'dd/mm/aaaa'"
+              :min-date="departurePicker ?? today"
+              required
+            />
           </label>
         </div>
 
@@ -119,11 +290,21 @@ watchEffect(() => {
           <button type="submit" class="primary" :disabled="submitting">
             {{ submitting ? 'Enviando…' : 'Enviar pedido' }}
           </button>
-          <button type="button" class="ghost" @click="resetForm">Limpar</button>
+          <button
+            type="button"
+            class="ghost"
+            @click="() => resetForm({ clearMessages: true })"
+          >
+            Limpar
+          </button>
         </div>
       </form>
 
-      <p v-if="localMessage" class="feedback" :class="messageType">{{ localMessage }}</p>
+      <div v-if="localMessages.length" class="feedback" :class="messageType">
+        <ul>
+          <li v-for="message in localMessages" :key="message">{{ message }}</li>
+        </ul>
+      </div>
     </section>
 
     <section class="card list-card">
@@ -139,13 +320,13 @@ watchEffect(() => {
       <ul v-else class="list">
         <li v-for="item in travelStore.items" :key="item.id" class="list-item">
           <div>
-            <strong>#{{ item.id }} – {{ item.destination }}</strong>
+            <strong>#{{ item.id }} – {{ item.location_label || '—' }}</strong>
             <p>
-              {{ new Date(item.departure_date).toLocaleDateString() }} →
-              {{ new Date(item.return_date).toLocaleDateString() }}
+              {{ formatDateForDisplay(item.departure_date) }} →
+              {{ formatDateForDisplay(item.return_date) }}
             </p>
           </div>
-          <span class="status" :class="item.status">{{ item.status }}</span>
+          <span class="status" :class="item.status">{{ getStatusLabel(item.status) }}</span>
         </li>
         <li v-if="!travelStore.items.length" class="empty">
           Nenhum pedido encontrado. Cadastre um novo para começar.
@@ -202,6 +383,21 @@ select {
   border-radius: 0.75rem;
   padding: 0.75rem 0.9rem;
   font-size: 1rem;
+}
+
+.date-input {
+  width: 100%;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
 input:focus,
@@ -262,6 +458,15 @@ button {
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
   font-weight: 500;
+}
+
+.feedback ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.feedback li + li {
+  margin-top: 0.35rem;
 }
 
 .feedback.success {
