@@ -64,21 +64,31 @@ export const setupApiInterceptors = (
             : error.message ?? 'Erro ao se comunicar com o servidor',
       } as { status: number | null; message: string } & Record<string, unknown>;
 
-      if (
-        normalizedError.status !== null &&
-        [401, 403].includes(normalizedError.status)
-      ) {
-        authStore.clearSession('Sessão expirada. Faça login novamente.');
+      if (normalizedError.status === 401) {
+        const isLoginRoute = router.currentRoute.value.name === 'login';
 
-        if (router.currentRoute.value.name !== 'login') {
+        const fallbackMessage = 'Sessão expirada. Faça login novamente.';
+        const messageToUse =
+          normalizedError.message && normalizedError.message.trim() !== ''
+            ? normalizedError.message
+            : fallbackMessage;
+
+        authStore.clearSession(isLoginRoute ? undefined : fallbackMessage);
+
+        if (!isLoginRoute) {
           authStore.setRedirectPath(router.currentRoute.value.fullPath);
-        }
-
-        authStore.setStatusMessage(normalizedError.message);
-
-        if (router.currentRoute.value.name !== 'login') {
           void router.push({ name: 'login', query: { reason: 'expired' } });
         }
+
+        authStore.setStatusMessage(messageToUse);
+      } else if (normalizedError.status === 403) {
+        const fallbackMessage = 'Você não possui permissão para executar esta ação.';
+        const messageToUse =
+          normalizedError.message && normalizedError.message.trim() !== ''
+            ? normalizedError.message
+            : fallbackMessage;
+
+        authStore.setStatusMessage(messageToUse);
       }
 
       return Promise.reject(normalizedError);

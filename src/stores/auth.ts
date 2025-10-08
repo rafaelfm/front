@@ -124,6 +124,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const login = async (credentials: { email: string; password: string }) => {
+    clearSession();
     loading.value = true;
     statusMessage.value = '';
 

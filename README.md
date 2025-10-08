@@ -1,42 +1,75 @@
-# front
+# Front-end – Portal de Viagens Corporativas
 
-This template should help get you started developing with Vue 3 in Vite.
+SPA desenvolvida com Vue 3 + Vite que consome a API Laravel para gerenciar pedidos de viagem corporativa. A aplicação utiliza Pinia para gerenciamento de estado, Vue Router para navegação protegida e Axios com interceptores para anexar o JWT em todas as requisições.
 
-## Recommended IDE Setup
+## Requisitos
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Node.js 20+
+- npm 10+
+- API em execução (ver diretório `back/`)
 
-## Recommended Browser Setup
+## Instalação
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd) 
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
+```bash
+cd front
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+## Executando em modo desenvolvimento
 
-```sh
+O front-end é servido via Nginx na porta `91` quando utilizando o `docker-compose`. Em execução local:
+
+```bash
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Acesse `http://localhost:5173` (ou `http://localhost:91` quando por trás do Nginx). O cliente utiliza a mesma origem para montar as rotas `/api`, portanto não é necessário configurar `VITE_API_BASE_URL` quando a API está sendo servida pelo mesmo host.
 
-```sh
-npm run build
-```
+## Scripts
+
+| Comando | Descrição |
+| --- | --- |
+| `npm run dev` | Inicia o Vite em modo desenvolvimento. |
+| `npm run build` | Gera build de produção. |
+| `npm run preview` | Previsualiza o build gerado. |
+
+## Autenticação e Fluxo
+
+1. Tela de login (`/login` ou `/` – alias) consome `POST /api/login`.
+2. O token é armazenado em `jwt` (cookie com `SameSite=Lax`) e mantido no estado do Pinia (`auth` store).
+3. Rotas protegidas (`/dashboard`, `/cadastrar`) usam guardas globais para validar o token, reidratando a sessão via `GET /api/user`.
+4. Interceptores do Axios redirecionam para o login se a API responder `401`/`403`.
+
+## Layout
+
+- **Sidebar responsiva** com atalhos para Dashboard e Cadastro.
+- **Dashboard**: tabela com filtros (status, destino, período) e ações de aprovação/cancelamento disponíveis apenas para administradores.
+- **Cadastro**: formulário para criar novos pedidos, com feedback em tempo real e listagem dos pedidos recentes do usuário.
+
+## Estado Global
+
+- `stores/auth.ts`: cuida do JWT, usuário autenticado, banners de sessão e restaurar token do cookie.
+- `stores/travelRequests.ts`: centraliza filtros, paginação, criação/listagem e atualização de status dos pedidos.
+
+## Feedback ao Usuário
+
+- Banner global no topo para mensagens de sessão.
+- Feedback contextual (sucesso/erro) em dashboard e formulário de cadastro.
+- Indicadores de loading exibidos durante chamadas assíncronas.
+
+## Ajustes de Permissão no Front
+
+A visibilidade das ações do dashboard é baseada nos dados retornados pelo backend (`user.role` / `user.roles`). Usuários sem permissão de gerenciamento enxergam apenas seus próprios pedidos e não visualizam botões de alteração de status.
+
+## Testes
+
+Testes unitários/integração podem ser adicionados com `vitest` ou `cypress`. No momento não há suites configuradas — priorize o fluxo manual:
+
+1. Login com `admin@gmail.com` / `admin@gmail.com`.
+2. Criar pedido via `/cadastrar`.
+3. Validar filtros e atualização de status via `/dashboard`.
+4. Fazer logout pelo menu lateral ou expirando o token.
+
+## Deploy
+
+Execute `npm run build`. O diretório `dist/` pode ser servido por qualquer CDN ou integrado ao Nginx. Lembre-se de apontar `/api` para o backend Laravel.

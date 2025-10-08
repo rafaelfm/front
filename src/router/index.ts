@@ -5,22 +5,28 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
-      path: '/',
+      path: '/login',
+      alias: '/',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { requiresGuest: true },
     },
     {
-      path: '/dashboard',
-      name: 'dashboard',
-      component: () => import('../views/DashboardView.vue'),
+      path: '/',
+      component: () => import('../layouts/ProtectedLayout.vue'),
       meta: { requiresAuth: true },
-    },
-    {
-      path: '/cadastrar',
-      name: 'cadastrar',
-      component: () => import('../views/CadastroView.vue'),
-      meta: { requiresAuth: true },
+      children: [
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('../views/DashboardView.vue'),
+        },
+        {
+          path: 'cadastrar',
+          name: 'cadastrar',
+          component: () => import('../views/CadastroView.vue'),
+        },
+      ],
     },
     {
       path: '/:pathMatch(.*)*',

@@ -1,320 +1,207 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, reactive, ref, watchEffect } from 'vue';
+import { useTravelRequestsStore } from '../stores/travelRequests';
 import { useAuthStore } from '../stores/auth';
+import DestinationAutocomplete from '../components/DestinationAutocomplete.vue';
 
-interface CadastroItem {
-  id: number;
-  nome: string;
-  descricao: string;
-  categoria: string;
-  criadoEm: string;
-}
-
-const STORAGE_KEY = 'app-cadastro-itens';
-
+const travelStore = useTravelRequestsStore();
 const auth = useAuthStore();
-const router = useRouter();
 
-const items = ref<CadastroItem[]>([]);
-const search = ref('');
-const editingId = ref<number | null>(null);
 const form = reactive({
-  nome: '',
-  descricao: '',
-  categoria: 'Geral',
+  requester_name: '',
+  destination: '',
+  departure_date: '',
+  return_date: '',
+  notes: '',
 });
 
-const filteredItems = computed(() => {
-  if (!search.value) {
-    return items.value;
-  }
+const submitting = ref(false);
+const localMessage = ref('');
+const messageType = ref<'success' | 'error'>('success');
 
-  const term = search.value.toLowerCase();
-  return items.value.filter((item) =>
-    [item.nome, item.descricao, item.categoria]
-      .join(' ')
-      .toLowerCase()
-      .includes(term),
-  );
-});
-
-const isEditing = computed(() => editingId.value !== null);
-
-const resetForm = () => {
-  form.nome = '';
-  form.descricao = '';
-  form.categoria = 'Geral';
-  editingId.value = null;
-};
-
-const loadItems = () => {
-  if (typeof localStorage === 'undefined') {
-    return;
-  }
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-
-    const parsed = JSON.parse(raw) as CadastroItem[];
-    if (Array.isArray(parsed)) {
-      items.value = parsed;
-    }
-  } catch (error) {
-    console.warn('Não foi possível carregar os itens:', error);
-  }
-};
-
-const persistItems = () => {
-  if (typeof localStorage === 'undefined') {
-    return;
-  }
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items.value));
-};
-
-watch(
-  () => items.value,
-  () => {
-    persistItems();
-  },
-  { deep: true },
+const userRequests = computed(() =>
+  travelStore.items.filter((item) => item.status === 'requested'),
 );
 
-const handleSubmit = () => {
-  if (!form.nome.trim()) {
+const resetForm = () => {
+  form.requester_name = '';
+  form.destination = '';
+  form.departure_date = '';
+  form.return_date = '';
+  form.notes = '';
+};
+
+const submit = async () => {
+  if (submitting.value) {
     return;
   }
 
-  const timestamp = new Date().toISOString();
+  submitting.value = true;
+  localMessage.value = '';
 
-  if (editingId.value !== null) {
-    items.value = items.value.map((item) =>
-      item.id === editingId.value
-        ? {
-            ...item,
-            nome: form.nome.trim(),
-            descricao: form.descricao.trim(),
-            categoria: form.categoria,
-          }
-        : item,
-    );
-  } else {
-    const newItem: CadastroItem = {
-      id: Date.now(),
-      nome: form.nome.trim(),
-      descricao: form.descricao.trim(),
-      categoria: form.categoria,
-      criadoEm: timestamp,
-    };
+  try {
+    await travelStore.create({
+      requester_name: form.requester_name,
+      destination: form.destination,
+      departure_date: form.departure_date,
+      return_date: form.return_date,
+      notes: form.notes,
+    });
 
-    items.value = [newItem, ...items.value];
-  }
-
-  resetForm();
-};
-
-const handleEdit = (item: CadastroItem) => {
-  editingId.value = item.id;
-  form.nome = item.nome;
-  form.descricao = item.descricao;
-  form.categoria = item.categoria;
-};
-
-const handleDelete = (id: number) => {
-  items.value = items.value.filter((item) => item.id !== id);
-
-  if (editingId.value === id) {
+    messageType.value = 'success';
+    localMessage.value = 'Pedido de viagem criado com sucesso!';
     resetForm();
+    await travelStore.fetch();
+  } catch (error) {
+    messageType.value = 'error';
+    localMessage.value =
+      typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message)
+        : 'Não foi possível criar o pedido.';
+  } finally {
+    submitting.value = false;
   }
-};
-
-const goBack = () => {
-  router.push({ name: 'dashboard' });
-};
-
-const logout = () => {
-  auth.logout();
-  router.replace({ name: 'login' });
 };
 
 onMounted(() => {
-  loadItems();
+  if (!travelStore.items.length) {
+    travelStore.fetch().catch(() => {});
+  }
+});
+
+watchEffect(() => {
+  if (!form.requester_name && travelStore.error === '' && auth.user?.name) {
+    form.requester_name = auth.user.name;
+  }
 });
 </script>
 
 <template>
-  <main class="page">
-    <section class="card">
-      <header class="header">
-        <div>
-          <h1>Cadastro de Registros</h1>
-          <p class="subtitle">
-            Gerencie seus itens cadastrados. Utilize a pesquisa para encontrar
-            rapidamente qualquer registro.
-          </p>
-        </div>
-        <div class="header-actions">
-          <button type="button" class="secondary" @click="goBack">
-            Voltar para Dashboard
-          </button>
-          <button type="button" class="secondary" @click="logout">
-            Sair
-          </button>
-        </div>
+  <main class="cadastro">
+    <section class="card form-card">
+      <header>
+        <h1>Novo pedido de viagem</h1>
+        <p class="subtitle">
+          Preencha os dados abaixo para registrar uma nova solicitação de viagem.
+        </p>
       </header>
 
-      <section class="form-section">
-        <h2>{{ isEditing ? 'Editar registro' : 'Novo registro' }}</h2>
-        <form class="form" @submit.prevent="handleSubmit">
-          <label class="field">
-            <span>Nome</span>
-            <input
-              v-model="form.nome"
-              type="text"
-              required
-              placeholder="Nome do item"
-            />
-          </label>
+      <form class="form" @submit.prevent="submit">
+        <label>
+          <span>Solicitante</span>
+          <input v-model="form.requester_name" type="text" required placeholder="Nome completo" />
+        </label>
 
-          <label class="field">
-            <span>Descrição</span>
-            <textarea
-              v-model="form.descricao"
-              rows="3"
-              placeholder="Descrição detalhada"
-            ></textarea>
-          </label>
+        <DestinationAutocomplete
+          v-model="form.destination"
+          label="Destino"
+          placeholder="Cidade, País"
+          required
+        />
 
-          <label class="field">
-            <span>Categoria</span>
-            <select v-model="form.categoria">
-              <option value="Geral">Geral</option>
-              <option value="Financeiro">Financeiro</option>
-              <option value="Operacional">Operacional</option>
-              <option value="Outros">Outros</option>
-            </select>
+        <div class="grid">
+          <label>
+            <span>Data de ida</span>
+            <input v-model="form.departure_date" type="date" required />
           </label>
+          <label>
+            <span>Data de volta</span>
+            <input v-model="form.return_date" type="date" required />
+          </label>
+        </div>
 
-          <div class="form-actions">
-            <button type="submit" class="primary">
-              {{ isEditing ? 'Salvar alterações' : 'Adicionar registro' }}
-            </button>
-            <button type="button" class="ghost" @click="resetForm">
-              Limpar
-            </button>
+        <label>
+          <span>Observações</span>
+          <textarea v-model="form.notes" rows="3" placeholder="Informações adicionais"></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="primary" :disabled="submitting">
+            {{ submitting ? 'Enviando…' : 'Enviar pedido' }}
+          </button>
+          <button type="button" class="ghost" @click="resetForm">Limpar</button>
+        </div>
+      </form>
+
+      <p v-if="localMessage" class="feedback" :class="messageType">{{ localMessage }}</p>
+    </section>
+
+    <section class="card list-card">
+      <header>
+        <h2>Pedidos recentes</h2>
+        <p class="subtitle">
+          Acompanhe os pedidos solicitados recentemente. Utilize o painel principal
+          para visualizar todos os pedidos e atualizar status.
+        </p>
+      </header>
+
+      <div v-if="travelStore.loading" class="loading">Carregando pedidos…</div>
+      <ul v-else class="list">
+        <li v-for="item in travelStore.items" :key="item.id" class="list-item">
+          <div>
+            <strong>#{{ item.id }} – {{ item.destination }}</strong>
+            <p>
+              {{ new Date(item.departure_date).toLocaleDateString() }} →
+              {{ new Date(item.return_date).toLocaleDateString() }}
+            </p>
           </div>
-        </form>
-      </section>
-
-      <section class="list-section">
-        <header class="list-header">
-          <h2>Itens cadastrados</h2>
-          <input
-            v-model="search"
-            type="search"
-            placeholder="Pesquisar por nome, descrição ou categoria"
-          />
-        </header>
-
-        <table class="table" v-if="filteredItems.length">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Descrição</th>
-              <th>Categoria</th>
-              <th>Criado em</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in filteredItems" :key="item.id">
-              <td>{{ item.nome }}</td>
-              <td>{{ item.descricao || '—' }}</td>
-              <td>{{ item.categoria }}</td>
-              <td>{{ new Date(item.criadoEm).toLocaleString() }}</td>
-              <td class="table-actions">
-                <button type="button" class="secondary" @click="handleEdit(item)">
-                  Editar
-                </button>
-                <button type="button" class="danger" @click="handleDelete(item.id)">
-                  Excluir
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <p v-else class="empty">Nenhum registro encontrado.</p>
-      </section>
+          <span class="status" :class="item.status">{{ item.status }}</span>
+        </li>
+        <li v-if="!travelStore.items.length" class="empty">
+          Nenhum pedido encontrado. Cadastre um novo para começar.
+        </li>
+      </ul>
     </section>
   </main>
 </template>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-  background: #f1f5f9;
-  padding: 2.5rem 1rem;
-  display: flex;
-  justify-content: center;
+.cadastro {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  align-items: start;
 }
 
 .card {
-  width: min(100%, 1100px);
   background: #fff;
   border-radius: 1rem;
-  padding: 2.75rem;
-  box-shadow: 0 25px 60px -35px rgba(15, 23, 42, 0.45);
+  padding: 2.5rem;
+  box-shadow: 0 20px 55px -40px rgba(15, 23, 42, 0.5);
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
-}
-
-.header {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  gap: 1.5rem;
 }
 
 .subtitle {
   color: #475569;
 }
 
-.form-section {
+.form {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-}
-
-.form {
-  display: grid;
   gap: 1rem;
 }
 
-.field {
+label {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 input,
 textarea,
 select {
   border: 1px solid #cbd5f5;
-  border-radius: 0.6rem;
+  border-radius: 0.75rem;
   padding: 0.75rem 0.9rem;
   font-size: 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 input:focus,
@@ -325,54 +212,43 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
-.form-actions {
+textarea {
+  resize: vertical;
+}
+
+.actions {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 button {
-  border: none;
   border-radius: 0.75rem;
-  padding: 0.75rem 1.3rem;
+  padding: 0.75rem 1.2rem;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.2s ease;
 }
 
 .primary {
+  border: none;
   background: #0ea5e9;
   color: #fff;
 }
 
-.primary:hover {
+.primary:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 12px 30px -18px rgba(14, 165, 233, 0.85);
 }
 
-.secondary {
-  background: #e2e8f0;
-  color: #1f2937;
-}
-
-.secondary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 30px -18px rgba(148, 163, 184, 0.85);
-}
-
-.danger {
-  background: #ef4444;
-  color: #fff;
-}
-
-.danger:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 30px -18px rgba(239, 68, 68, 0.85);
+.primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .ghost {
-  background: transparent;
   border: 1px solid #cbd5f5;
+  background: transparent;
   color: #1f2937;
 }
 
@@ -381,78 +257,68 @@ button {
   box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.45);
 }
 
-.list-section {
+.feedback {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  font-weight: 500;
+}
+
+.feedback.success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.feedback.error {
+  background: rgba(248, 113, 113, 0.15);
+  color: #b91c1c;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-}
-
-.list-header {
-  display: flex;
-  flex-wrap: wrap;
   gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
 }
 
-.list-header input[type='search'] {
-  width: min(100%, 320px);
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  border-radius: 0.75rem;
-  overflow: hidden;
-}
-
-.table th,
-.table td {
-  padding: 0.85rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.table thead {
-  background: #eff6ff;
-  color: #1d4ed8;
-  text-transform: uppercase;
-  font-size: 0.8rem;
-  letter-spacing: 0.05em;
-}
-
-.table-actions {
+.list-item {
   display: flex;
-  gap: 0.5rem;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.85rem;
+  background: rgba(148, 163, 184, 0.12);
 }
 
+.status {
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  padding: 0.35rem 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+.status.requested {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+.status.approved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.status.cancelled {
+  background: rgba(248, 113, 113, 0.2);
+  color: #b91c1c;
+}
+
+.loading,
 .empty {
   text-align: center;
   color: #475569;
-  padding: 1rem;
-  border: 1px dashed #cbd5f5;
-  border-radius: 0.75rem;
-}
-
-@media (max-width: 760px) {
-  .table thead {
-    display: none;
-  }
-
-  .table tr {
-    display: grid;
-    gap: 0.35rem;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #e2e8f0;
-  }
-
-  .table td {
-    border: none;
-    padding: 0.35rem 0;
-  }
-
-  .table-actions {
-    justify-content: flex-start;
-  }
 }
 </style>
