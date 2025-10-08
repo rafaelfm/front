@@ -50,7 +50,7 @@ const logout = () => {
         <div class="avatar">{{ userName.charAt(0) }}</div>
         <div class="user-info">
           <span class="name">{{ userName }}</span>
-          <span class="role">{{ roleName }}</span>
+          <span class="role">({{ roleName }})</span>
         </div>
       </div>
 

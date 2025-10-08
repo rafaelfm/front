@@ -51,18 +51,18 @@ const localSuccess = ref('');
 const filterFromPicker = ref<Date | null>(null);
 const filterToPicker = ref<Date | null>(null);
 const today = new Date();
+const pagination = computed(() => travelStore.pagination);
+const hasItems = computed(() => travelStore.items.length > 0);
+const isFirstPage = computed(() => pagination.value.currentPage <= 1);
+const isLastPage = computed(() => pagination.value.currentPage >= pagination.value.lastPage);
+const perPageOptions = [10, 15, 25];
 today.setHours(0, 0, 0, 0);
 
 const fetchData = async () => {
-  try {
-    await travelStore.fetch();
-    localError.value = '';
-  } catch (error) {
-    localError.value =
-      typeof error === 'object' && error !== null && 'message' in error
-        ? String((error as { message?: unknown }).message)
-        : 'Falha ao carregar os pedidos.';
-  }
+  localError.value = '';
+  localSuccess.value = '';
+  await travelStore.fetch();
+  localError.value = travelStore.error;
 };
 
 onMounted(() => {
@@ -111,26 +111,14 @@ watch(filterToPicker, (value) => {
   }
 });
 
-watch(
-  () => [
-    travelStore.filters.status,
-    travelStore.filters.destination,
-    travelStore.filters.from,
-    travelStore.filters.to,
-  ],
-  () => {
-    fetchData().catch(() => {});
-  },
-);
-
 const handleStatusChange = async (id: number, status: TravelStatus) => {
   localError.value = '';
   localSuccess.value = '';
 
   try {
     await travelStore.updateStatus(id, status);
-    localSuccess.value = 'Status atualizado com sucesso.';
     await fetchData();
+    localSuccess.value = 'Status atualizado com sucesso.';
   } catch (error) {
     const messages =
       typeof error === 'object' && error !== null && 'messages' in error && Array.isArray((error as { messages?: unknown }).messages)
@@ -152,6 +140,58 @@ const handleStatusChange = async (id: number, status: TravelStatus) => {
 
 const goToCadastro = () => {
   router.push({ name: 'cadastrar' });
+};
+
+const changePage = (page: number) => {
+  changePageAsync(page).catch(() => {});
+};
+
+const changePageAsync = async (page: number) => {
+  await travelStore.goToPage(page);
+  localError.value = travelStore.error;
+};
+
+const goToPreviousPage = () => {
+  if (!isFirstPage.value) {
+    changePage(pagination.value.currentPage - 1);
+  }
+};
+
+const goToNextPage = () => {
+  if (!isLastPage.value) {
+    changePage(pagination.value.currentPage + 1);
+  }
+};
+
+const handlePerPageChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement | null;
+  if (!target) {
+    return;
+  }
+
+  const value = Number(target.value);
+  localSuccess.value = '';
+  travelStore
+    .setPerPage(value)
+    .then(() => {
+      localError.value = travelStore.error;
+    })
+    .catch(() => {});
+};
+
+const clearFilters = () => {
+  travelStore.resetFilters();
+  travelStore.pagination.currentPage = 1;
+  localSuccess.value = '';
+  filterFromPicker.value = null;
+  filterToPicker.value = null;
+  fetchData().catch(() => {});
+};
+
+const applyFilters = () => {
+  travelStore.pagination.currentPage = 1;
+  localSuccess.value = '';
+  fetchData().catch(() => {});
 };
 </script>
 
@@ -177,9 +217,9 @@ const goToCadastro = () => {
         </select>
       </label>
       <DestinationAutocomplete
-        v-model="travelStore.filters.destination"
-        label="Destino"
-        placeholder="Ex: São Paulo"
+        v-model="travelStore.filters.location"
+        label="Local"
+        placeholder="Cidade, estado ou país"
       />
       <label>
         <span>Data inicial</span>
@@ -208,7 +248,8 @@ const goToCadastro = () => {
           :min-date="filterFromPicker ?? today"
         />
       </label>
-      <button type="button" class="ghost" @click="travelStore.resetFilters">Limpar</button>
+      <button type="button" class="primary" @click="applyFilters">Aplicar filtros</button>
+      <button type="button" class="ghost" @click="clearFilters">Limpar</button>
     </section>
 
     <p v-if="localError" class="feedback error">{{ localError }}</p>
@@ -217,12 +258,12 @@ const goToCadastro = () => {
     <div v-if="travelStore.loading" class="loading">Carregando pedidos…</div>
 
     <div v-else class="table-wrapper">
-      <table v-if="travelStore.filtered.length" class="table">
+      <table v-if="hasItems" class="table">
         <thead>
           <tr>
             <th>#</th>
             <th>Solicitante</th>
-            <th>Destino</th>
+            <th>Local</th>
             <th>Ida</th>
             <th>Volta</th>
             <th>Status</th>
@@ -230,7 +271,7 @@ const goToCadastro = () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in travelStore.filtered" :key="item.id">
+          <tr v-for="item in travelStore.items" :key="item.id">
             <td>{{ item.id }}</td>
             <td>{{ item.requester_name }}</td>
             <td>{{ item.location_label || '—' }}</td>
@@ -255,6 +296,28 @@ const goToCadastro = () => {
         </tbody>
       </table>
       <p v-else class="empty">Nenhum pedido encontrado.</p>
+      <div v-if="hasItems" class="pagination-bar">
+        <div class="pagination-info">
+          Página {{ pagination.currentPage }} de {{ pagination.lastPage }} · {{ pagination.total }} registros
+        </div>
+        <div class="pagination-controls">
+          <label class="per-page">
+            <span>Itens por página</span>
+            <select :value="pagination.perPage" @change="handlePerPageChange">
+              <option v-for="option in perPageOptions" :key="option" :value="option">
+                {{ option }}
+              </option>
+            </select>
+          </label>
+          <button type="button" class="ghost" :disabled="isFirstPage" @click="goToPreviousPage">
+            Anterior
+          </button>
+          <span class="page-indicator">{{ pagination.currentPage }} / {{ pagination.lastPage }}</span>
+          <button type="button" class="ghost" :disabled="isLastPage" @click="goToNextPage">
+            Próxima
+          </button>
+        </div>
+      </div>
     </div>
   </main>
 </template>
@@ -363,6 +426,51 @@ select:focus {
   border-radius: 1rem;
   box-shadow: 0 25px 60px -35px rgba(15, 23, 42, 0.25);
   overflow: hidden;
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.pagination-info {
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pagination-controls .per-page {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #475569;
+}
+
+.pagination-controls .per-page select {
+  border-radius: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #cbd5f5;
+}
+
+.pagination-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: 0.9rem;
+  color: #1f2937;
 }
 
 .table {

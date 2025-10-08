@@ -28,9 +28,33 @@ const minChars = computed(() => Math.max(1, props.minChars ?? 2));
 const results = ref<Destination[]>([]);
 const isFocused = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
+const SEARCH_DEBOUNCE = 1500;
+const BLUR_DELAY = 150;
 
 const hasQuery = computed(() => internalValue.value.trim().length >= minChars.value);
 const hasSuggestions = computed(() => results.value.length > 0);
+
+const clearDebounce = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (debounceHandle.value !== undefined) {
+    window.clearTimeout(debounceHandle.value);
+    debounceHandle.value = undefined;
+  }
+};
+
+const clearBlurTimeout = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (blurHandle.value !== undefined) {
+    window.clearTimeout(blurHandle.value);
+    blurHandle.value = undefined;
+  }
+};
 
 watch(
   () => props.modelValue,
@@ -48,9 +72,7 @@ watch(
       emit('update:modelValue', value);
     }
 
-    if (typeof window !== 'undefined' && debounceHandle.value !== undefined) {
-      window.clearTimeout(debounceHandle.value);
-    }
+    clearDebounce();
 
     if (!hasQuery.value) {
       results.value = [];
@@ -59,10 +81,6 @@ watch(
     }
 
     if (!isFocused.value) {
-      return;
-    }
-
-    if (typeof window === 'undefined') {
       return;
     }
 
@@ -80,7 +98,7 @@ watch(
           showSuggestions.value = results.value.length > 0;
         }
       }
-    }, 1500);
+    }, SEARCH_DEBOUNCE);
   },
   { immediate: false },
 );
@@ -106,9 +124,8 @@ const handleSelect = (destination: Destination) => {
     ? destination.label
     : fallbackParts.join(', ');
 
-  if (typeof window !== 'undefined' && debounceHandle.value !== undefined) {
-    window.clearTimeout(debounceHandle.value);
-  }
+  clearDebounce();
+  clearBlurTimeout();
 
   isFocused.value = false;
   showSuggestions.value = false;
@@ -116,18 +133,13 @@ const handleSelect = (destination: Destination) => {
   internalValue.value = formatted;
   emit('update:modelValue', formatted);
   emit('selected', { destination, formatted });
-  if (typeof window !== 'undefined' && blurHandle.value !== undefined) {
-    window.clearTimeout(blurHandle.value);
-  }
   inputRef.value?.blur();
 };
 
 const handleFocus = () => {
   isFocused.value = true;
 
-  if (typeof window !== 'undefined' && blurHandle.value !== undefined) {
-    window.clearTimeout(blurHandle.value);
-  }
+  clearBlurTimeout();
 
   if (hasSuggestions.value) {
     showSuggestions.value = true;
@@ -137,28 +149,16 @@ const handleFocus = () => {
 const handleBlur = () => {
   isFocused.value = false;
 
-  if (typeof window === 'undefined') {
-    showSuggestions.value = false;
-    return;
-  }
-
   blurHandle.value = window.setTimeout(() => {
     showSuggestions.value = false;
-  }, 150);
+    results.value = [];
+    blurHandle.value = undefined;
+  }, BLUR_DELAY);
 };
 
 onBeforeUnmount(() => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  if (debounceHandle.value !== undefined) {
-    window.clearTimeout(debounceHandle.value);
-  }
-
-  if (blurHandle.value !== undefined) {
-    window.clearTimeout(blurHandle.value);
-  }
+  clearDebounce();
+  clearBlurTimeout();
 });
 </script>
 

@@ -40,7 +40,7 @@ export interface TravelRequest {
 
 export interface TravelFilters {
   status: TravelStatus | 'all';
-  destination: string;
+  location: string;
   from: string;
   to: string;
 }
@@ -98,7 +98,7 @@ const extractErrorMessages = (input: unknown): string[] => {
   return ['Não foi possível processar a solicitação.'];
 };
 
-const buildLocationLabel = (request: Pick<ApiTravelRequest, 'location_label' | 'city'>): string => {
+const buildLocationLabel = (request: Pick<ApiTravelRequest | TravelRequest, 'location_label' | 'city'>): string => {
   if (typeof request.location_label === 'string' && request.location_label.trim() !== '') {
     return request.location_label.trim();
   }
@@ -137,45 +137,47 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
   const error = ref('');
   const filters = reactive<TravelFilters>({
     status: 'all',
-    destination: '',
+    location: '',
     from: '',
     to: '',
   });
   const pagination = reactive({
     currentPage: 1,
-    perPage: 15,
+    perPage: 10,
     total: 0,
     lastPage: 1,
   });
 
-  const filtered = computed(() => {
-    const normalizedDestination = filters.destination.trim().toLocaleLowerCase();
-    const fromDate = toApiDate(filters.from);
-    const toDate = toApiDate(filters.to);
-
-    if (filters.status === 'all' && !normalizedDestination && !fromDate && !toDate) {
-      return items.value;
-    }
-
-    return items.value.filter((item) => {
-      const statusMatch =
-        filters.status === 'all' ? true : item.status === filters.status;
-      const locationLabel = buildLocationLabel(item).toLocaleLowerCase();
-      const destinationMatch = normalizedDestination
-        ? locationLabel.includes(normalizedDestination)
-        : true;
-      const fromMatch = fromDate ? item.departure_date >= fromDate : true;
-      const toMatch = toDate ? item.return_date <= toDate : true;
-
-      return statusMatch && destinationMatch && fromMatch && toMatch;
-    });
-  });
+  const filtered = computed(() => items.value);
 
   const resetFilters = () => {
     filters.status = 'all';
-    filters.destination = '';
+    filters.location = '';
     filters.from = '';
     filters.to = '';
+  };
+
+  const goToPage = async (page: number) => {
+    const targetPage = Math.max(1, Math.min(page, pagination.lastPage || 1));
+
+    if (targetPage === pagination.currentPage) {
+      return fetch();
+    }
+
+    pagination.currentPage = targetPage;
+    await fetch();
+  };
+
+  const setPerPage = async (perPage: number) => {
+    const normalized = Math.max(1, perPage);
+
+    if (normalized === pagination.perPage) {
+      return fetch();
+    }
+
+    pagination.perPage = normalized;
+    pagination.currentPage = 1;
+    await fetch();
   };
 
   const fetch = async () => {
@@ -189,7 +191,7 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
       const { data } = await apiClient.get<TravelRequestCollectionResponse>('/travel-requests', {
         params: {
           status: filters.status === 'all' ? undefined : filters.status,
-          destination: filters.destination || undefined,
+          location: filters.location || undefined,
           from,
           to,
           page: pagination.currentPage,
@@ -202,10 +204,11 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
         : [];
 
       items.value = normalizedItems;
-      pagination.currentPage = data.meta?.current_page ?? 1;
-      pagination.lastPage = data.meta?.last_page ?? 1;
-      pagination.perPage = data.meta?.per_page ?? 15;
-      pagination.total = data.meta?.total ?? normalizedItems.length;
+      const meta = data.meta ?? {};
+      pagination.currentPage = meta.current_page ?? pagination.currentPage;
+      pagination.lastPage = meta.last_page ?? pagination.lastPage;
+      pagination.perPage = meta.per_page ?? pagination.perPage;
+      pagination.total = meta.total ?? normalizedItems.length;
     } catch (err) {
       const messages = extractErrorMessages(err);
       error.value = messages.join(' ');
@@ -305,6 +308,8 @@ export const useTravelRequestsStore = defineStore('travel-requests', () => {
     filters,
     pagination,
     resetFilters,
+    goToPage,
+    setPerPage,
     fetch,
     create,
     updateStatus,

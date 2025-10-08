@@ -14,7 +14,7 @@ const auth = useAuthStore();
 
 const form = reactive({
   requester_name: '',
-  destination: '',
+  locationText: '',
   city_id: null as number | null,
   departure_date: '',
   return_date: '',
@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
 
 const resetForm = (options: { clearMessages?: boolean } = {}) => {
   form.requester_name = '';
-  form.destination = '';
+  form.locationText = '';
   form.city_id = null;
   form.departure_date = '';
   form.return_date = '';
@@ -202,7 +202,7 @@ watchEffect(() => {
 });
 
 watch(
-  () => form.destination,
+  () => form.locationText,
   (value) => {
     if (selectingDestination) {
       return;
@@ -241,9 +241,9 @@ watch(
         </label>
 
 <DestinationAutocomplete
-  v-model="form.destination"
-  label="Destino"
-  placeholder="Cidade, País"
+  v-model="form.locationText"
+  label="Local"
+  placeholder="Cidade, estado ou país"
   required
   @selected="handleDestinationSelected"
 />
