@@ -43,7 +43,7 @@ const statusOptions: Array<{ value: TravelStatus | 'all'; label: string }> = [
 const statusActions: Record<TravelStatus, TravelStatus[]> = {
   requested: ['approved', 'cancelled'],
   approved: [],
-  cancelled: ['approved'],
+  cancelled: [],
 };
 
 const localError = ref('');
