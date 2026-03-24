@@ -4,6 +4,8 @@ import App from './App.vue';
 import router from './router';
 import { useAuthStore } from './stores/auth';
 import { setupApiInterceptors } from './lib/api';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 
 const app = createApp(App);
 const pinia = createPinia();

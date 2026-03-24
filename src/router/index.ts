@@ -5,8 +5,13 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
-      path: '/login',
+      path: '/teste',
       alias: '/',
+      name: 'teste',
+      component: () => import('../views/Teste.vue')
+    },
+    {
+      path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { requiresGuest: true },
